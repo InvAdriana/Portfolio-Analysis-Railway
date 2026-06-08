@@ -3326,4 +3326,6 @@ try:
                     st.plotly_chart(fig_split, use_container_width=True)
 
 except Exception as e:
+    import traceback
     st.error(f"Error detectado: {e}")
+    st.code(traceback.format_exc(), language="python")

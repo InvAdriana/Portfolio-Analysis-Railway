@@ -2138,14 +2138,18 @@ try:
                                             fx_map.get(r['Date'].date(), fx_today))
                         if 'call' in r['Type'].lower(): f_calls += abs(amt)
                         elif 'dist' in r['Type'].lower(): f_dists += amt
-                    period_key = str(q_d.year) if cf_view == "Anual" else q_d.strftime('%d-%m-%Y')
+                    # Clave según vista seleccionada
+                    if cf_view == "Anual":
+                        period_key = str(q_d.year)
+                    else:
+                        period_key = q_d.strftime('%d-%m-%Y')
                     if period_key not in fund_cf_data[f_name]:
                         fund_cf_data[f_name][period_key] = {'CC': 0.0, 'Dist': 0.0, 'NCF': 0.0}
                     fund_cf_data[f_name][period_key]['CC']   += f_calls
                     fund_cf_data[f_name][period_key]['Dist'] += f_dists
                     fund_cf_data[f_name][period_key]['NCF']  += f_dists - f_calls
 
-            # Períodos disponibles (más reciente primero)
+            # Períodos únicos ordenados (más reciente primero)
             all_periods = sorted(set(
                 p for fd in fund_cf_data.values() for p in fd.keys()
             ), reverse=True)
@@ -2157,91 +2161,132 @@ try:
                 "🏢 Real Estate":    ["Real Estate"],
             }
 
-            # Construir tabla única con MultiIndex columnas
-            # Columnas: Vintage | Total_CC | Total_Dist | Total_NCF | P1_CC | P1_Dist | P1_NCF | ...
-            col_tuples = [('Total','CC'), ('Total','Dist'), ('Total','NCF')]
+            def fmt_k(v):
+                """Formatea valor en miles con separador de miles."""
+                if v == 0: return '-'
+                return f"{v/1e3:,.0f}"
+
+            def ncf_color(v):
+                if v > 0: return '#00703c'
+                if v < 0: return '#c00000'
+                return '#888'
+
+            # Construir HTML de la tabla
+            # Header row 1: Fondo | Vintage | Total (3 cols) | Período1 (3 cols) | ...
+            # Header row 2:       |         | CC | Dist | NCF | CC | Dist | NCF | ...
+            n_periods = len(all_periods)
+            total_cols = 2 + 3 + 3 * n_periods  # Fondo + Vintage + 3 Total + 3*n
+
+            # Estilos base
+            th_base  = "style='background:#002060;color:white;padding:5px 6px;font-size:11px;font-weight:600;text-align:center;border:1px solid #1a3a6a;'"
+            th_sub   = "style='background:#0d2d5e;color:#b0c8e8;padding:4px 4px;font-size:10px;font-weight:600;text-align:center;border:1px solid #1a3a6a;white-space:nowrap;'"
+            th_total = "style='background:#1a4a8a;color:white;padding:5px 6px;font-size:11px;font-weight:600;text-align:center;border:1px solid #1a3a6a;'"
+            td_base  = "style='padding:4px 6px;font-size:11px;text-align:right;border:1px solid #dde;'"
+            td_name  = "style='padding:4px 8px;font-size:11px;text-align:left;border:1px solid #dde;white-space:nowrap;'"
+            td_vint  = "style='padding:4px 6px;font-size:11px;text-align:center;border:1px solid #dde;color:#666;'"
+            tr_group = "style='background:#dce8f5;'"
+            tr_even  = "style='background:#f7f9fc;'"
+            tr_odd   = "style='background:#ffffff;'"
+
+            html = "<div style='overflow-x:auto;'><table style='border-collapse:collapse;width:100%;font-family:Inter,sans-serif;'>"
+
+            # ── Header row 1 ──────────────────────────────────────────────────
+            html += "<thead>"
+            html += f"<tr>"
+            html += f"<th rowspan='2' {th_base} style='background:#002060;color:white;padding:5px 8px;font-size:11px;font-weight:600;text-align:left;border:1px solid #1a3a6a;'>Fondo</th>"
+            html += f"<th rowspan='2' {th_base}>Vintage</th>"
+            html += f"<th colspan='3' {th_total}>Total</th>"
             for p in all_periods:
-                col_tuples += [(p,'CC'), (p,'Dist'), (p,'NCF')]
-            multi_cols = pd.MultiIndex.from_tuples(col_tuples)
+                html += f"<th colspan='3' {th_base}>{p}</th>"
+            html += "</tr>"
 
-            rows_data = []
-            row_meta  = []  # (fondo, vintage, is_group)
+            # ── Header row 2 (CC / Dist / NCF) ───────────────────────────────
+            html += "<tr>"
+            for _ in range(n_periods + 1):  # +1 para Total
+                html += f"<th {th_sub}>CC</th><th {th_sub}>Dist</th><th {th_sub}>NCF</th>"
+            html += "</tr></thead><tbody>"
 
+            # ── Filas de datos ────────────────────────────────────────────────
+            row_idx = 0
             for grupo_nombre, estrategias in GRUPOS_CF.items():
-                funds_g = df_final[df_final['Strategy'].isin(estrategias)][['Fund','Vintage']].values.tolist()
-                if not funds_g: continue
+                funds_g_df = df_final[df_final['Strategy'].isin(estrategias)][['Fund','Vintage']]
+                if funds_g_df.empty: continue
 
                 # Fila de grupo (agregado)
-                group_vals = {}
-                for p in all_periods:
-                    for m in ['CC','Dist','NCF']:
-                        group_vals[(p,m)] = sum(
-                            fund_cf_data.get(f, {}).get(p, {}).get(m, 0)
-                            for f, _ in funds_g
-                        ) / 1e3
-                group_vals[('Total','CC')]   = sum(group_vals.get((p,'CC'),0)  for p in all_periods)
-                group_vals[('Total','Dist')] = sum(group_vals.get((p,'Dist'),0) for p in all_periods)
-                group_vals[('Total','NCF')]  = sum(group_vals.get((p,'NCF'),0)  for p in all_periods)
-                row_data = [group_vals.get(c, 0.0) for c in col_tuples]
-                rows_data.append(row_data)
-                row_meta.append((grupo_nombre.split(' ',1)[1], '', True))
-
-                # Filas individuales
-                for f_name, vintage in sorted(funds_g, key=lambda x: (str(x[1]), str(x[0]))):
-                    if f_name not in fund_cf_data: continue
-                    if not any(fund_cf_data[f_name].values()): continue
-                    fvals = {}
+                g_totals = {'CC': 0.0, 'Dist': 0.0, 'NCF': 0.0}
+                g_by_period = {p: {'CC': 0.0, 'Dist': 0.0, 'NCF': 0.0} for p in all_periods}
+                for f_name in funds_g_df['Fund']:
                     for p in all_periods:
                         for m in ['CC','Dist','NCF']:
-                            fvals[(p,m)] = fund_cf_data[f_name].get(p, {}).get(m, 0.0) / 1e3
-                    fvals[('Total','CC')]   = sum(fvals.get((p,'CC'),0)  for p in all_periods)
-                    fvals[('Total','Dist')] = sum(fvals.get((p,'Dist'),0) for p in all_periods)
-                    fvals[('Total','NCF')]  = sum(fvals.get((p,'NCF'),0)  for p in all_periods)
-                    row_data = [fvals.get(c, 0.0) for c in col_tuples]
-                    rows_data.append(row_data)
+                            val = fund_cf_data.get(f_name, {}).get(p, {}).get(m, 0.0)
+                            g_by_period[p][m] += val
+                            g_totals[m] += val if p == all_periods[0] or True else 0
+
+                # Recalcular totales de grupo correctamente
+                g_totals = {m: sum(g_by_period[p][m] for p in all_periods) for m in ['CC','Dist','NCF']}
+
+                html += f"<tr {tr_group}>"
+                html += f"<td {td_name} style='padding:4px 8px;font-size:11px;text-align:left;border:1px solid #dde;font-weight:700;background:#dce8f5;'>{grupo_nombre}</td>"
+                html += f"<td {td_vint} style='background:#dce8f5;'></td>"
+                for m in ['CC','Dist','NCF']:
+                    v = g_totals[m]
+                    color = f"color:{ncf_color(v)};" if m == 'NCF' else ''
+                    html += f"<td style='padding:4px 6px;font-size:11px;text-align:right;border:1px solid #dde;font-weight:700;background:#dce8f5;{color}'>{fmt_k(v)}</td>"
+                for p in all_periods:
+                    for m in ['CC','Dist','NCF']:
+                        v = g_by_period[p][m]
+                        color = f"color:{ncf_color(v)};" if m == 'NCF' else ''
+                        html += f"<td style='padding:4px 6px;font-size:11px;text-align:right;border:1px solid #dde;font-weight:700;background:#dce8f5;{color}'>{fmt_k(v)}</td>"
+                html += "</tr>"
+
+                # Filas individuales
+                funds_sorted = funds_g_df.sort_values(['Vintage','Fund']).values.tolist()
+                for f_name, vintage in funds_sorted:
+                    if f_name not in fund_cf_data: continue
+                    f_totals = {m: sum(fund_cf_data[f_name].get(p, {}).get(m, 0.0) for p in all_periods)
+                                for m in ['CC','Dist','NCF']}
+                    if all(abs(v) < 0.01 for v in f_totals.values()): continue
+
+                    tr_style = tr_even if row_idx % 2 == 0 else tr_odd
+                    html += f"<tr {tr_style}>"
+                    html += f"<td {td_name}>&nbsp;&nbsp;{f_name}</td>"
                     vint_str = str(int(vintage)) if pd.notna(vintage) else ''
-                    row_meta.append((f_name, vint_str, False))
+                    html += f"<td {td_vint}>{vint_str}</td>"
+                    for m in ['CC','Dist','NCF']:
+                        v = f_totals[m]
+                        color = f"color:{ncf_color(v)};" if m == 'NCF' else ''
+                        html += f"<td style='padding:4px 6px;font-size:11px;text-align:right;border:1px solid #dde;{color}'>{fmt_k(v)}</td>"
+                    for p in all_periods:
+                        for m in ['CC','Dist','NCF']:
+                            v = fund_cf_data[f_name].get(p, {}).get(m, 0.0)
+                            color = f"color:{ncf_color(v)};" if m == 'NCF' else ''
+                            html += f"<td style='padding:4px 6px;font-size:11px;text-align:right;border:1px solid #dde;{color}'>{fmt_k(v)}</td>"
+                    html += "</tr>"
+                    row_idx += 1
 
-            if rows_data:
-                df_detail = pd.DataFrame(rows_data, columns=multi_cols)
-                df_detail.insert(0, 'Vintage', [m[1] for m in row_meta])
-                df_detail.insert(0, 'Fondo',   [m[0] for m in row_meta])
-                is_group = [m[2] for m in row_meta]
+            html += "</tbody></table></div>"
+            st.markdown(html, unsafe_allow_html=True)
 
-                # Renombrar columnas para st.dataframe (no soporta MultiIndex)
-                # Formato: "Total CC" | "Total Dist" | "Total NCF" | "31-03-2026 CC" | ...
-                flat_cols = ['Fondo', 'Vintage']
-                for top, sub in col_tuples:
-                    flat_cols.append(f"{top}\n{sub}")
-                df_detail.columns = flat_cols
-
-                num_cols = [c for c in flat_cols if c not in ['Fondo','Vintage']]
-                fmt_detail = {c: '{:,.0f}' for c in num_cols}
-
-                def style_detail(row):
-                    idx = row.name
-                    if is_group[idx]:
-                        return ['font-weight:bold; background-color:#dce8f5'] * len(row)
-                    # Color NCF
-                    styles = [''] * len(row)
-                    for i, col in enumerate(row.index):
-                        if '\nNCF' in str(col):
-                            val = row[col]
-                            if isinstance(val, (int, float)):
-                                styles[i] = 'color:#00703c' if val > 0 else ('color:#c00000' if val < 0 else '')
-                    return styles
-
-                st.dataframe(
-                    df_detail.style.format(fmt_detail).apply(style_detail, axis=1),
-                    use_container_width=True,
-                    height=min(50 + len(df_detail) * 32, 700),
-                )
-                excel_download_btn(
-                    df_detail, "CF Detalle por Fondo",
-                    f"cashflows_detalle_{report_curr}.xlsx",
-                    "CF Detalle", f"Cash Flows por Fondo — {report_curr}",
-                    report_curr, key="dl_cf_detail"
-                )
+            # Botón descarga Excel
+            # Construir df plano para descarga
+            dl_rows = []
+            for grupo_nombre, estrategias in GRUPOS_CF.items():
+                funds_g_df = df_final[df_final['Strategy'].isin(estrategias)][['Fund','Vintage']]
+                if funds_g_df.empty: continue
+                for f_name, vintage in funds_g_df.sort_values(['Vintage','Fund']).values.tolist():
+                    if f_name not in fund_cf_data: continue
+                    row = {'Fondo': f_name, 'Grupo': grupo_nombre.split(' ',1)[1],
+                           'Vintage': int(vintage) if pd.notna(vintage) else ''}
+                    for p in all_periods:
+                        for m in ['CC','Dist','NCF']:
+                            row[f"{p} {m}"] = fund_cf_data[f_name].get(p, {}).get(m, 0.0) / 1e3
+                    dl_rows.append(row)
+            if dl_rows:
+                df_dl = pd.DataFrame(dl_rows)
+                excel_download_btn(df_dl, "CF Detalle",
+                                   f"cashflows_detalle_{report_curr}.xlsx",
+                                   "CF Detalle", f"Cash Flows por Fondo — {report_curr}",
+                                   report_curr, key="dl_cf_detail")
 
     if tab_active("📆 Commitment Pace"):
         st.subheader(f"Commitment Pace ({report_curr})")

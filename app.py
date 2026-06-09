@@ -2022,6 +2022,8 @@ try:
                                             fx_map.get(r['Date'].date(), fx_today))
                         if 'call' in r['Type'].lower(): f_calls += abs(amt)
                         elif 'dist' in r['Type'].lower(): f_dists += amt
+                    if f_calls == 0 and f_dists == 0:
+                        continue
                     # Clave según vista seleccionada
                     if cf_view == "Anual":
                         period_key = str(q_d.year)
@@ -2055,30 +2057,38 @@ try:
                 if v < 0: return '#c00000'
                 return '#888'
 
-            # Construir HTML de la tabla
-            # Header row 1: Fondo | Vintage | Total (3 cols) | Período1 (3 cols) | ...
-            # Header row 2:       |         | CC | Dist | NCF | CC | Dist | NCF | ...
+            # Construir HTML de la tabla con sticky headers y scroll dual
             n_periods = len(all_periods)
-            total_cols = 2 + 3 + 3 * n_periods  # Fondo + Vintage + 3 Total + 3*n
 
-            # Estilos base
-            th_base  = "style='background:#002060;color:white;padding:5px 6px;font-size:11px;font-weight:600;text-align:center;border:1px solid #1a3a6a;'"
-            th_sub   = "style='background:#0d2d5e;color:#b0c8e8;padding:4px 4px;font-size:10px;font-weight:600;text-align:center;border:1px solid #1a3a6a;white-space:nowrap;'"
-            th_total = "style='background:#1a4a8a;color:white;padding:5px 6px;font-size:11px;font-weight:600;text-align:center;border:1px solid #1a3a6a;'"
+            # Estilos base con sticky
+            th_base  = "style='background:#002060;color:white;padding:5px 6px;font-size:11px;font-weight:600;text-align:center;border:1px solid #1a3a6a;position:sticky;top:0;z-index:2;'"
+            th_sub   = "style='background:#0d2d5e;color:#b0c8e8;padding:4px 4px;font-size:10px;font-weight:600;text-align:center;border:1px solid #1a3a6a;white-space:nowrap;position:sticky;top:28px;z-index:2;'"
+            th_total = "style='background:#1a4a8a;color:white;padding:5px 6px;font-size:11px;font-weight:600;text-align:center;border:1px solid #1a3a6a;position:sticky;top:0;z-index:2;'"
+            th_fondo = "style='background:#002060;color:white;padding:5px 8px;font-size:11px;font-weight:600;text-align:left;border:1px solid #1a3a6a;position:sticky;top:0;left:0;z-index:3;'"
+            th_vint  = "style='background:#002060;color:white;padding:5px 6px;font-size:11px;font-weight:600;text-align:center;border:1px solid #1a3a6a;position:sticky;top:0;left:160px;z-index:3;'"
+            th_sub_f = "style='background:#0d2d5e;color:#b0c8e8;padding:4px 4px;font-size:10px;font-weight:600;text-align:left;border:1px solid #1a3a6a;position:sticky;top:28px;left:0;z-index:3;'"
+            th_sub_v = "style='background:#0d2d5e;color:#b0c8e8;padding:4px 4px;font-size:10px;font-weight:600;text-align:center;border:1px solid #1a3a6a;position:sticky;top:28px;left:160px;z-index:3;'"
+            td_name  = "style='padding:4px 8px;font-size:11px;text-align:left;border:1px solid #dde;white-space:nowrap;position:sticky;left:0;z-index:1;'"
+            td_vint  = "style='padding:4px 6px;font-size:11px;text-align:center;border:1px solid #dde;color:#666;position:sticky;left:160px;z-index:1;'"
             td_base  = "style='padding:4px 6px;font-size:11px;text-align:right;border:1px solid #dde;'"
-            td_name  = "style='padding:4px 8px;font-size:11px;text-align:left;border:1px solid #dde;white-space:nowrap;'"
-            td_vint  = "style='padding:4px 6px;font-size:11px;text-align:center;border:1px solid #dde;color:#666;'"
             tr_group = "style='background:#dce8f5;'"
             tr_even  = "style='background:#f7f9fc;'"
             tr_odd   = "style='background:#ffffff;'"
 
-            html = "<div style='overflow-x:auto;'><table style='border-collapse:collapse;width:100%;font-family:Inter,sans-serif;'>"
-
-            # ── Header row 1 ──────────────────────────────────────────────────
-            html += "<thead>"
-            html += f"<tr>"
-            html += f"<th rowspan='2' {th_base} style='background:#002060;color:white;padding:5px 8px;font-size:11px;font-weight:600;text-align:left;border:1px solid #1a3a6a;'>Fondo</th>"
-            html += f"<th rowspan='2' {th_base}>Vintage</th>"
+            # Contenedor con scroll y barra superior duplicada via JS
+            html = """
+<style>
+.cf-scroll-wrap { overflow-x: auto; max-height: 600px; overflow-y: auto; border: 1px solid #dde; border-radius: 6px; }
+.cf-scroll-wrap table { border-collapse: collapse; font-family: Inter, sans-serif; }
+.cf-scroll-wrap thead th { position: sticky; }
+</style>
+<div class="cf-scroll-wrap">
+<table>
+"""
+            # ── Header row 1 ─────────────────────────────────────────────────
+            html += f"<thead><tr>"
+            html += f"<th rowspan='2' {th_fondo}>Fondo</th>"
+            html += f"<th rowspan='2' {th_vint}>Vintage</th>"
             html += f"<th colspan='3' {th_total}>Total</th>"
             for p in all_periods:
                 html += f"<th colspan='3' {th_base}>{p}</th>"

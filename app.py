@@ -239,119 +239,7 @@ def excel_download_btn(df: pd.DataFrame, label: str, filename: str,
 # ─────────────────────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Family Office OS", layout="wide", initial_sidebar_state="expanded")
 
-# ─────────────────────────────────────────────────────────────────────────────
-# LOGIN — autenticación persistente con cookies (30 días)
-# ─────────────────────────────────────────────────────────────────────────────
 import os
-import hmac
-import hashlib
-import time
-
-def check_credentials(username: str, password: str) -> bool:
-    try:
-        valid_user = os.environ.get("APP_USERNAME") or st.secrets.get("APP_USERNAME", "admin")
-        valid_pass = os.environ.get("APP_PASSWORD") or st.secrets.get("APP_PASSWORD", "")
-        return username == valid_user and password == valid_pass
-    except:
-        return False
-
-def make_token(username: str) -> str:
-    """Genera un token firmado con timestamp para validar la sesión."""
-    secret = os.environ.get("APP_PASSWORD", "secret")
-    expires = int(time.time()) + 30 * 24 * 3600  # 30 días
-    msg = f"{username}:{expires}"
-    sig = hmac.new(secret.encode(), msg.encode(), hashlib.sha256).hexdigest()
-    return f"{msg}:{sig}"
-
-def verify_token(token: str) -> bool:
-    """Verifica que el token sea válido y no haya expirado."""
-    try:
-        secret = os.environ.get("APP_PASSWORD", "secret")
-        parts = token.split(":")
-        if len(parts) != 3:
-            return False
-        username, expires_str, sig = parts
-        expires = int(expires_str)
-        if time.time() > expires:
-            return False
-        msg = f"{username}:{expires}"
-        expected = hmac.new(secret.encode(), msg.encode(), hashlib.sha256).hexdigest()
-        return hmac.compare_digest(sig, expected)
-    except:
-        return False
-
-# Intentar leer cookie de sesión via query params o session_state
-def get_cookie_token() -> str:
-    """Lee el token guardado en session_state (persiste mientras el tab esté abierto)."""
-    return st.session_state.get("_auth_token", "")
-
-def show_login():
-    # Inyectar JS para leer/escribir cookie del navegador
-    token_from_cookie = st.query_params.get("_t", "")
-    if token_from_cookie and verify_token(token_from_cookie):
-        st.session_state["authenticated"] = True
-        st.session_state["_auth_token"] = token_from_cookie
-        st.rerun()
-
-    col1, col2, col3 = st.columns([1, 1.2, 1])
-    with col2:
-        st.markdown("<br><br>", unsafe_allow_html=True)
-        st.markdown("""
-        <div style='text-align:center; margin-bottom:24px'>
-            <span style='font-size:48px'>🏛️</span>
-            <h2 style='margin:8px 0 4px; color:#002060'>Family Office OS</h2>
-            <p style='color:#666; font-size:14px'>Alternative Assets Monitor</p>
-        </div>
-        """, unsafe_allow_html=True)
-        with st.form("login_form"):
-            username = st.text_input("Usuario", placeholder="usuario")
-            password = st.text_input("Contraseña", type="password", placeholder="••••••••")
-            remember = st.checkbox("Mantener sesión iniciada (30 días)", value=True)
-            submitted = st.form_submit_button("Ingresar", use_container_width=True)
-            if submitted:
-                if check_credentials(username, password):
-                    token = make_token(username)
-                    st.session_state["authenticated"] = True
-                    st.session_state["_auth_token"] = token
-                    if remember:
-                        # Guardar token en cookie del navegador via JS
-                        st.markdown(f"""
-                        <script>
-                        const d = new Date();
-                        d.setTime(d.getTime() + (30*24*60*60*1000));
-                        document.cookie = "_fo_token={token};expires=" + d.toUTCString() + ";path=/;SameSite=Lax";
-                        </script>
-                        """, unsafe_allow_html=True)
-                    st.rerun()
-                else:
-                    st.error("Usuario o contraseña incorrectos")
-
-    # Leer cookie del navegador via JS e inyectarla como query param
-    st.markdown("""
-    <script>
-    function getCookie(name) {
-        const value = `; ${document.cookie}`;
-        const parts = value.split(`; ${name}=`);
-        if (parts.length === 2) return parts.pop().split(';').shift();
-        return '';
-    }
-    const token = getCookie('_fo_token');
-    if (token) {
-        const url = new URL(window.location.href);
-        if (!url.searchParams.get('_t')) {
-            url.searchParams.set('_t', token);
-            window.location.href = url.toString();
-        }
-    }
-    </script>
-    """, unsafe_allow_html=True)
-
-if "authenticated" not in st.session_state:
-    st.session_state["authenticated"] = False
-
-if not st.session_state["authenticated"]:
-    show_login()
-    st.stop()
 
 st.title("🏛️ Alternative Assets Monitor")
 st.markdown("---")
@@ -1007,10 +895,6 @@ try:
       </div>
     </div>
     """, unsafe_allow_html=True)
-
-    if st.sidebar.button("🚪 Cerrar sesión", key="logout_btn", use_container_width=True):
-        st.session_state["authenticated"] = False
-        st.rerun()
 
     # ── Configuración (moneda + fecha) ────────────────────────────────────────
     st.sidebar.markdown('<div class="sb-section-label">Configuración</div>',

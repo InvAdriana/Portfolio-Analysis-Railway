@@ -2036,9 +2036,14 @@ try:
                     fund_cf_data[f_name][period_key]['NCF']  += f_dists - f_calls
 
             # Períodos únicos ordenados (más reciente primero)
-            all_periods = sorted(set(
-                p for fd in fund_cf_data.values() for p in fd.keys()
-            ), reverse=True)
+            # OJO: formato DD-MM-YYYY no ordena bien como string → parsear como fecha
+            raw_periods = set(p for fd in fund_cf_data.values() for p in fd.keys())
+            if cf_view == "Anual":
+                all_periods = sorted(raw_periods, key=lambda x: int(x), reverse=True)
+            else:
+                all_periods = sorted(raw_periods,
+                                     key=lambda x: pd.to_datetime(x, dayfirst=True),
+                                     reverse=True)
 
             GRUPOS_CF = {
                 "🏦 Private Equity": ["Buyout","Secondaries","Growth Equity","Venture Capital","Fund of Funds"],

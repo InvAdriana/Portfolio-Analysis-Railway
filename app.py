@@ -2120,9 +2120,7 @@ try:
             st.markdown("#### Detalle por fondo (en miles)")
 
             # Construir datos por fondo y período
-            # Usar df_cf_q (base trimestral) siempre, luego agrupar si anual
-            fund_cf_data = {}  # {fund: {period: {CC, Dist, NCF}}}
-
+            fund_cf_data = {}
             for f_name in df_final['Fund'].tolist():
                 f_mt = df_char[df_char['Fund'] == f_name].iloc[0]
                 f_fl = df_flows_raw[df_flows_raw['Fund'] == f_name].copy()
@@ -2140,21 +2138,18 @@ try:
                                             fx_map.get(r['Date'].date(), fx_today))
                         if 'call' in r['Type'].lower(): f_calls += abs(amt)
                         elif 'dist' in r['Type'].lower(): f_dists += amt
-                    if f_calls != 0 or f_dists != 0:
-                        period_key = q_d.year if cf_view == "Anual" else q_d.strftime('%d-%m-%Y')
-                        if period_key not in fund_cf_data[f_name]:
-                            fund_cf_data[f_name][period_key] = {'CC': 0, 'Dist': 0, 'NCF': 0}
-                        fund_cf_data[f_name][period_key]['CC']   += f_calls
-                        fund_cf_data[f_name][period_key]['Dist'] += f_dists
-                        fund_cf_data[f_name][period_key]['NCF']  += f_dists - f_calls
+                    period_key = str(q_d.year) if cf_view == "Anual" else q_d.strftime('%d-%m-%Y')
+                    if period_key not in fund_cf_data[f_name]:
+                        fund_cf_data[f_name][period_key] = {'CC': 0.0, 'Dist': 0.0, 'NCF': 0.0}
+                    fund_cf_data[f_name][period_key]['CC']   += f_calls
+                    fund_cf_data[f_name][period_key]['Dist'] += f_dists
+                    fund_cf_data[f_name][period_key]['NCF']  += f_dists - f_calls
 
             # Períodos disponibles (más reciente primero)
             all_periods = sorted(set(
                 p for fd in fund_cf_data.values() for p in fd.keys()
             ), reverse=True)
 
-            # Construir MultiIndex DataFrame por fondo
-            # Columnas: Total | período1 | período2 | ...
             GRUPOS_CF = {
                 "🏦 Private Equity": ["Buyout","Secondaries","Growth Equity","Venture Capital","Fund of Funds"],
                 "🎯 Co-Investments": ["Single Co-Inv"],
@@ -2162,84 +2157,91 @@ try:
                 "🏢 Real Estate":    ["Real Estate"],
             }
 
-            def build_fund_cf_table(metric_key, metric_label):
-                rows = []
-                for grupo_nombre, estrategias in GRUPOS_CF.items():
-                    funds_g = df_final[df_final['Strategy'].isin(estrategias)]['Fund'].tolist()
-                    if not funds_g: continue
-                    # Fila de grupo
-                    group_row = {'Fondo': grupo_nombre.split(' ', 1)[1], 'Tipo': metric_label,
-                                 '_is_group': True}
-                    group_total = 0
+            # Construir tabla única con MultiIndex columnas
+            # Columnas: Vintage | Total_CC | Total_Dist | Total_NCF | P1_CC | P1_Dist | P1_NCF | ...
+            col_tuples = [('Total','CC'), ('Total','Dist'), ('Total','NCF')]
+            for p in all_periods:
+                col_tuples += [(p,'CC'), (p,'Dist'), (p,'NCF')]
+            multi_cols = pd.MultiIndex.from_tuples(col_tuples)
+
+            rows_data = []
+            row_meta  = []  # (fondo, vintage, is_group)
+
+            for grupo_nombre, estrategias in GRUPOS_CF.items():
+                funds_g = df_final[df_final['Strategy'].isin(estrategias)][['Fund','Vintage']].values.tolist()
+                if not funds_g: continue
+
+                # Fila de grupo (agregado)
+                group_vals = {}
+                for p in all_periods:
+                    for m in ['CC','Dist','NCF']:
+                        group_vals[(p,m)] = sum(
+                            fund_cf_data.get(f, {}).get(p, {}).get(m, 0)
+                            for f, _ in funds_g
+                        ) / 1e3
+                group_vals[('Total','CC')]   = sum(group_vals.get((p,'CC'),0)  for p in all_periods)
+                group_vals[('Total','Dist')] = sum(group_vals.get((p,'Dist'),0) for p in all_periods)
+                group_vals[('Total','NCF')]  = sum(group_vals.get((p,'NCF'),0)  for p in all_periods)
+                row_data = [group_vals.get(c, 0.0) for c in col_tuples]
+                rows_data.append(row_data)
+                row_meta.append((grupo_nombre.split(' ',1)[1], '', True))
+
+                # Filas individuales
+                for f_name, vintage in sorted(funds_g, key=lambda x: (str(x[1]), str(x[0]))):
+                    if f_name not in fund_cf_data: continue
+                    if not any(fund_cf_data[f_name].values()): continue
+                    fvals = {}
                     for p in all_periods:
-                        gval = sum(fund_cf_data.get(f, {}).get(p, {}).get(metric_key, 0) for f in funds_g)
-                        group_row[str(p)] = gval / 1e3  # en miles
-                        group_total += gval
-                    group_row['Total'] = group_total / 1e3
-                    rows.append(group_row)
-                    # Filas de fondos individuales
-                    for f_name in sorted(funds_g):
-                        if f_name not in fund_cf_data: continue
-                        if not any(p in fund_cf_data[f_name] for p in all_periods): continue
-                        frow = {'Fondo': f_name, 'Tipo': metric_label, '_is_group': False}
-                        f_total = 0
-                        for p in all_periods:
-                            val = fund_cf_data[f_name].get(p, {}).get(metric_key, 0)
-                            frow[str(p)] = val / 1e3
-                            f_total += val
-                        frow['Total'] = f_total / 1e3
-                        rows.append(frow)
-                return rows
+                        for m in ['CC','Dist','NCF']:
+                            fvals[(p,m)] = fund_cf_data[f_name].get(p, {}).get(m, 0.0) / 1e3
+                    fvals[('Total','CC')]   = sum(fvals.get((p,'CC'),0)  for p in all_periods)
+                    fvals[('Total','Dist')] = sum(fvals.get((p,'Dist'),0) for p in all_periods)
+                    fvals[('Total','NCF')]  = sum(fvals.get((p,'NCF'),0)  for p in all_periods)
+                    row_data = [fvals.get(c, 0.0) for c in col_tuples]
+                    rows_data.append(row_data)
+                    vint_str = str(int(vintage)) if pd.notna(vintage) else ''
+                    row_meta.append((f_name, vint_str, False))
 
-            # Mostrar tabla para cada métrica
-            period_cols = ['Total'] + [str(p) for p in all_periods]
+            if rows_data:
+                df_detail = pd.DataFrame(rows_data, columns=multi_cols)
+                df_detail.insert(0, 'Vintage', [m[1] for m in row_meta])
+                df_detail.insert(0, 'Fondo',   [m[0] for m in row_meta])
+                is_group = [m[2] for m in row_meta]
 
-            for metric_key, metric_label, color_pos in [
-                ('CC',   'CC',   False),
-                ('Dist', 'Dist', True),
-                ('NCF',  'NCF',  None),
-            ]:
-                rows = build_fund_cf_table(metric_key, metric_label)
-                if not rows: continue
-                df_fund_cf = pd.DataFrame(rows)
-                is_group = df_fund_cf.pop('_is_group')
-                df_fund_cf = df_fund_cf.set_index(['Fondo','Tipo'])
+                # Renombrar columnas para st.dataframe (no soporta MultiIndex)
+                # Formato: "Total CC" | "Total Dist" | "Total NCF" | "31-03-2026 CC" | ...
+                flat_cols = ['Fondo', 'Vintage']
+                for top, sub in col_tuples:
+                    flat_cols.append(f"{top}\n{sub}")
+                df_detail.columns = flat_cols
 
-                # Asegurar que existan todas las columnas de período
-                for c in period_cols:
-                    if c not in df_fund_cf.columns:
-                        df_fund_cf[c] = 0.0
-                df_fund_cf = df_fund_cf[period_cols]
+                num_cols = [c for c in flat_cols if c not in ['Fondo','Vintage']]
+                fmt_detail = {c: '{:,.0f}' for c in num_cols}
 
-                fmt_fund = {c: '{:,.0f}' for c in period_cols}
-
-                def style_fund_cf(row, is_group_series=is_group):
+                def style_detail(row):
                     idx = row.name
-                    # Buscar si es grupo
-                    try:
-                        pos = df_fund_cf.index.get_loc(idx)
-                        if is_group_series.iloc[pos]:
-                            return ['font-weight:bold; background-color:#dce8f5'] * len(row)
-                    except:
-                        pass
-                    if metric_key == 'NCF':
-                        return [('color:#00703c' if v > 0 else 'color:#c00000' if v < 0 else '')
-                                for v in row]
-                    return [''] * len(row)
+                    if is_group[idx]:
+                        return ['font-weight:bold; background-color:#dce8f5'] * len(row)
+                    # Color NCF
+                    styles = [''] * len(row)
+                    for i, col in enumerate(row.index):
+                        if '\nNCF' in str(col):
+                            val = row[col]
+                            if isinstance(val, (int, float)):
+                                styles[i] = 'color:#00703c' if val > 0 else ('color:#c00000' if val < 0 else '')
+                    return styles
 
-                with st.expander(f"**{metric_label}** {'(Capital Calls en miles)' if metric_key=='CC' else '(Distribuciones en miles)' if metric_key=='Dist' else '(Net Cash Flow en miles)'}",
-                                 expanded=(metric_key == 'NCF')):
-                    st.dataframe(
-                        df_fund_cf.style.format(fmt_fund).apply(style_fund_cf, axis=1),
-                        use_container_width=True,
-                        height=min(50 + len(df_fund_cf) * 32, 600),
-                    )
-                    excel_download_btn(
-                        df_fund_cf.reset_index(), f"CF_{metric_label}",
-                        f"cashflows_{metric_label.lower()}_{report_curr}.xlsx",
-                        metric_label, f"Cash Flows {metric_label} por Fondo — {report_curr}",
-                        report_curr, key=f"dl_cf_{metric_key}"
-                    )
+                st.dataframe(
+                    df_detail.style.format(fmt_detail).apply(style_detail, axis=1),
+                    use_container_width=True,
+                    height=min(50 + len(df_detail) * 32, 700),
+                )
+                excel_download_btn(
+                    df_detail, "CF Detalle por Fondo",
+                    f"cashflows_detalle_{report_curr}.xlsx",
+                    "CF Detalle", f"Cash Flows por Fondo — {report_curr}",
+                    report_curr, key="dl_cf_detail"
+                )
 
     if tab_active("📆 Commitment Pace"):
         st.subheader(f"Commitment Pace ({report_curr})")

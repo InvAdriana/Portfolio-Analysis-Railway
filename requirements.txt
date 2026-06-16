@@ -1,8 +1,9 @@
-google-api-python-client
-google-auth-httplib2
-google-auth-oauthlib
-pandas
-openpyxl
-pyxirr
 streamlit
+pandas
+numpy
 plotly
+pyxirr
+openpyxl
+requests
+google-auth
+google-api-python-client

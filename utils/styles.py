@@ -2,6 +2,18 @@ import streamlit as st
 
 def inject_css():
     """Inject all global CSS styles."""
+    # ── Ocultar branding de Streamlit ─────────────────────────────────────────
+    st.markdown("""
+    <style>
+    #MainMenu {visibility: hidden !important;}
+    footer {visibility: hidden !important;}
+    header {visibility: hidden !important;}
+    [data-testid="stToolbar"] {display: none !important;}
+    [data-testid="stDecoration"] {display: none !important;}
+    .stDeployButton {display: none !important;}
+    </style>
+    """, unsafe_allow_html=True)
+
     # ── Sidebar dark theme + tab radio ────────────────────────────────────────
     st.markdown("""
 <style>
